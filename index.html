@@ -43,6 +43,7 @@ dialog::backdrop{background:rgba(40,10,20,.55);backdrop-filter:blur(3px)}
 .rev{border-top:1px solid var(--line);padding:10px 0;font-size:.95rem}
 label{display:block;margin:10px 0 4px;font-size:.85rem;color:var(--muted)}
 .row{display:flex;gap:8px;margin-top:14px;justify-content:flex-end}
+.authbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.who{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.err{color:var(--accent);font-size:.9rem;min-height:1.2em;margin:6px 0 0}header{flex-wrap:wrap}
 footer{text-align:center;color:var(--muted);font-size:.85rem;padding:28px 18px}
 .gallery{display:grid;grid-template-columns:1.4fr 1fr;grid-template-rows:170px 170px;gap:12px;max-width:640px;margin:28px auto 0}
 .ph{position:relative;border-radius:22px;overflow:hidden;border:3px solid rgba(255,255,255,.9);box-shadow:0 4px 14px rgba(123,30,58,.25)}
@@ -53,7 +54,7 @@ footer{text-align:center;color:var(--muted);font-size:.85rem;padding:24px 18px}
 </style>
 </head>
 <body>
-<header><b>🐾 Pūkuotukai</b><button class="btn" onclick="openAdd()">Tapti prižiūrėtoju</button></header>
+<header><b>🐾 Pūkuotukai</b><div id="authbar" class="authbar"></div></header>
 <section class="hero">
 <div class="pets">🐶 🐱 🐰 🐦</div>
 <h1>Išvažiuoji? Rask, kas pasirūpins augintiniu</h1>
@@ -72,19 +73,38 @@ footer{text-align:center;color:var(--muted);font-size:.85rem;padding:24px 18px}
 </div>
 <div class="grid" id="grid"></div>
 </main>
-<footer>Demonstracinė versija: profiliai ir atsiliepimai laikomi tik šiame lange.</footer>
+<footer>Bandomoji versija: anketos ir atsiliepimai saugomi bendroje duomenų bazėje.</footer>
 
 <dialog id="dlg"></dialog>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
 <script>
-const sitters=[
-{id:1,name:"Rūta K.",city:"Klaipėda",av:"👩",pets:["🐶","🐱"],price:12,about:"Gyvenu name su kiemu, dirbu iš namų, todėl šuniukas niekada nelieka vienas.",reviews:[{n:"Jonas",s:5,t:"Mūsų Reksas grįžo laimingas!"},{n:"Eglė",s:5,t:"Siuntė nuotraukas kiekvieną dieną."}]},
-{id:2,name:"Tomas B.",city:"Vilnius",av:"👨",pets:["🐶"],price:15,about:"Kinologas, ilgi pasivaikščiojimai ir treniruotės.",reviews:[{n:"Laura",s:4,t:"Profesionalus, punktualus."}]},
-{id:3,name:"Gabija M.",city:"Kaunas",av:"👩‍🦰",pets:["🐱","🐰","🐦"],price:9,about:"Mėgstu mažesnius gyvūnus, turiu patirties su triušiais ir papūgomis.",reviews:[{n:"Mantas",s:5,t:"Katė jautėsi kaip namie."},{n:"Ieva",s:5,t:"Labai atsakinga."}]},
-{id:4,name:"Andrius P.",city:"Klaipėda",av:"🧔",pets:["🐱","🐶"],price:10,about:"Studentas, laisvas grafikas, galiu atvykti pas jus į namus.",reviews:[]}
-];
+// ===== 1. PRISIJUNGIMAS PRIE SUPABASE =====
+// URL = kur yra duomenų bazė, KEY = viešas raktas (saugumą užtikrina RLS taisyklės duomenų bazėje)
+const SB_URL="https://qocspomqybnnenqxhoew.supabase.co";
+const SB_KEY="sb_publishable_Z9m1p7jZ13yJyTS858qU2A_MGh_FPIw";
+const sb=window.supabase.createClient(SB_URL,SB_KEY);
 
-const ART={1:{skin:"#f3cfb3",hair:"#8a3b1f",hs:"long",shirt:"#7b1e3a"},2:{skin:"#e9b98f",hair:"#3a2418",hs:"short",beard:1,shirt:"#3b3f58"},3:{skin:"#f6d9c2",hair:"#c47a2c",hs:"bun",shirt:"#a3294d"},4:{skin:"#d9a67c",hair:"#20120c",hs:"short",shirt:"#5c6b73"}};
+let user=null;      // prisijungęs vartotojas (arba null)
+let sitters=[];     // anketos, atsiųstos iš duomenų bazės
+
+// ===== 2. PAGALBINĖS FUNKCIJOS =====
+const $=id=>document.getElementById(id);
+const avg=s=>s.reviews.length?s.reviews.reduce((a,r)=>a+r.s,0)/s.reviews.length:0;
+const star=n=>"★".repeat(Math.round(n))+"☆".repeat(5-Math.round(n));
+// esc() paverčia tekstą saugiu: žmogaus įvestas tekstas negali tapti kodu
+function esc(t){const d=document.createElement("div");d.textContent=t;return d.innerHTML}
+
+// Iliustracijos išvaizda parenkama pagal anketos id, kad kiekviena būtų kitokia
+const SK=["#f3cfb3","#e9b98f","#f6d9c2","#d9a67c","#c68a62"];
+const HR=["#8a3b1f","#3a2418","#c47a2c","#20120c","#5a2a1a","#b5651d"];
+const SH=["#7b1e3a","#3b3f58","#a3294d","#5c6b73","#2f6b5a"];
+function look(id){
+let h=0;for(const c of String(id))h=(Math.imul(h,31)+c.charCodeAt(0))|0;h=h>>>0;
+const pick=(a,n)=>a[(h>>>n)%a.length];
+const hs=pick(["long","short","bun","short"],3);
+return{skin:pick(SK,0),hair:pick(HR,5),hs,shirt:pick(SH,9),beard:hs==="short"&&(h>>>13)%3===0};
+}
 const PET={"🐶":"dog","🐱":"cat","🐰":"rabbit","🐦":"bird"};
 const EYE='<circle cx="-7" cy="-4" r="2.3" fill="#2a1218"/><circle cx="7" cy="-4" r="2.3" fill="#2a1218"/>';
 const PETS={
@@ -94,46 +114,100 @@ rabbit:'<ellipse cx="-8" cy="-26" rx="5" ry="15" fill="#f3e4e8"/><ellipse cx="8"
 bird:'<ellipse rx="17" ry="19" fill="#e8b93a"/><path d="M-4 2h8l-4 8z" fill="#d9692a"/><circle cx="-7" cy="-5" r="2.3" fill="#2a1218"/><circle cx="7" cy="-5" r="2.3" fill="#2a1218"/><path d="M-3-24q3-8 6 0" stroke="#c9981d" stroke-width="3" fill="none"/>'
 };
 function avatar(s){
-const a=ART[s.id]||{skin:"#f1c9a5",hair:"#5a2a1a",hs:"short",shirt:"#7b1e3a"};
+const a=look(s.id);
 const back=a.hs==="long"?`<path d="M28 50c0-24 12-30 22-30s22 6 22 30v24H28Z" fill="${a.hair}"/>`:"";
 const top=`<path d="M33 44c-1-16 8-22 17-22s18 6 17 22c-4-7-10-10-17-10s-13 3-17 10Z" fill="${a.hair}"/>`+(a.hs==="bun"?`<circle cx="50" cy="20" r="7" fill="${a.hair}"/>`:"");
 const beard=a.beard?`<path d="M34 50c1 14 8 20 16 20s15-6 16-20c-3 5-8 8-16 8s-13-3-16-8Z" fill="${a.hair}"/>`:"";
 const t=PET[s.pets[0]]||"dog";
 return `<svg viewBox="0 0 100 100" role="img" aria-label="${esc(s.name)}"><rect width="100" height="100" fill="#f6dfe6"/>${back}<path d="M12 100C12 76 30 68 50 68S88 76 88 100Z" fill="${a.shirt}"/><rect x="44" y="58" width="12" height="14" rx="5" fill="${a.skin}"/><circle cx="50" cy="46" r="17" fill="${a.skin}"/>${top}${beard}<circle cx="44" cy="46" r="1.8" fill="#2a1218"/><circle cx="56" cy="46" r="1.8" fill="#2a1218"/><path d="M45 53q5 4 10 0" stroke="${a.beard?"#fff":"#2a1218"}" stroke-width="1.6" fill="none" stroke-linecap="round"/><g transform="translate(73 76) scale(.6)">${PETS[t]}</g></svg>`;
 }
-const $=id=>document.getElementById(id);
-const avg=s=>s.reviews.length?s.reviews.reduce((a,r)=>a+r.s,0)/s.reviews.length:0;
-const star=n=>"★".repeat(Math.round(n))+"☆".repeat(5-Math.round(n));
-function esc(t){const d=document.createElement("div");d.textContent=t;return d.innerHTML}
+
+// ===== 3. DUOMENŲ ĮKĖLIMAS IŠ DUOMENŲ BAZĖS =====
+async function load(){
+// Prašome visų anketų kartu su jų atsiliepimais (lentelės susietos per sitter_id)
+const {data,error}=await sb.from("sitters").select("*, reviews(*)").order("created_at",{ascending:false});
+if(error){$("grid").innerHTML="<p>Nepavyko įkelti duomenų: "+esc(error.message)+"</p>";return}
+sitters=data.map(s=>({...s,reviews:(s.reviews||[]).map(r=>({n:r.author,s:r.stars,t:r.body}))}));
+cities();render();
+}
 function cities(){const c=[...new Set(sitters.map(s=>s.city))].sort(),sel=$("fCity"),v=sel.value;
 sel.innerHTML='<option value="">Visi miestai</option>'+c.map(x=>`<option>${esc(x)}</option>`).join("");sel.value=v}
 function render(){
 let l=sitters.filter(s=>(!$("fPet").value||s.pets.includes($("fPet").value))&&(!$("fCity").value||s.city===$("fCity").value));
 l.sort($("fSort").value==="p"?(a,b)=>a.price-b.price:(a,b)=>avg(b)-avg(a));
+if(!sitters.length){$("grid").innerHTML="<p>Kol kas nėra nė vienos anketos. Prisijunkite ir būkite pirmas!</p>";return}
 $("grid").innerHTML=l.length?l.map(s=>`<div class="card"><div class="top"><div class="av">${avatar(s)}</div><div><h3>${esc(s.name)}</h3><div class="meta">📍 ${esc(s.city)}</div></div></div>
-<div class="tags">${s.pets.map(p=>`<span class="chip">${p}</span>`).join("")}</div>
+<div class="tags">${s.pets.map(p=>`<span class="chip">${esc(p)}</span>`).join("")}</div>
 <div class="meta"><span class="stars">${star(avg(s))}</span> (${s.reviews.length})</div>
 <p class="meta">${esc(s.about)}</p>
-<div class="top" style="justify-content:space-between"><span class="price">${s.price} € / diena</span><button class="btn" onclick="openProfile(${s.id})">Peržiūrėti</button></div></div>`).join(""):"<p>Pagal šiuos kriterijus nieko nerasta.</p>";
+<div class="top" style="justify-content:space-between"><span class="price">${esc(String(s.price))} € / diena</span><button class="btn" onclick="openProfile('${s.id}')">Peržiūrėti</button></div></div>`).join(""):"<p>Pagal šiuos kriterijus nieko nerasta.</p>";
 }
+
+// ===== 4. PRISIJUNGIMAS / REGISTRACIJA =====
+function renderAuth(){
+const b=$("authbar");
+if(user){b.innerHTML=`<span class="meta who">${esc(user.email)}</span><button class="btn" onclick="openAdd()">Tapti prižiūrėtoju</button><button class="btn ghost" onclick="logout()">Atsijungti</button>`}
+else{b.innerHTML=`<button class="btn ghost" onclick="openAuth()">Prisijungti</button><button class="btn" onclick="openAuth()">Registruotis</button>`}
+}
+function openAuth(){
+$("dlg").innerHTML=`<h3 style="margin-top:0">Prisijungimas</h3>
+<label>El. paštas</label><input id="ae" type="email" autocomplete="email">
+<label>Slaptažodis (bent 6 simboliai)</label><input id="ap2" type="password" autocomplete="current-password">
+<p class="err" id="am"></p>
+<div class="row"><button class="btn ghost" onclick="$('dlg').close()">Atšaukti</button><button class="btn ghost" onclick="doAuth('up')">Sukurti paskyrą</button><button class="btn" onclick="doAuth('in')">Prisijungti</button></div>`;
+$("dlg").showModal();
+}
+function tr(m){
+if(/invalid login/i.test(m))return"Neteisingas el. paštas arba slaptažodis.";
+if(/already registered|already been registered/i.test(m))return"Toks el. paštas jau užregistruotas.";
+if(/password/i.test(m)&&/6|short|least/i.test(m))return"Slaptažodis per trumpas (bent 6 simboliai).";
+if(/email.*invalid|invalid.*email/i.test(m))return"Neteisingas el. pašto adresas.";
+return m;
+}
+async function doAuth(kind){
+const email=$("ae").value.trim(),pw=$("ap2").value,msg=$("am");
+if(!email||pw.length<6){msg.textContent="Įveskite el. paštą ir bent 6 simbolių slaptažodį.";return}
+msg.textContent="Palaukite…";
+// signUp = nauja paskyra, signInWithPassword = prisijungimas
+const r=kind==="up"?await sb.auth.signUp({email,password:pw}):await sb.auth.signInWithPassword({email,password:pw});
+if(r.error){msg.textContent=tr(r.error.message);return}
+if(kind==="up"&&!r.data.session){msg.textContent="Paskyra sukurta. Patvirtinkite el. paštą (išsiuntėme laišką) ir prisijunkite.";return}
+$("dlg").close();
+}
+async function logout(){await sb.auth.signOut()}
+// Kai prisijungiama ar atsijungiama, atnaujiname viršutinę juostą
+sb.auth.onAuthStateChange((_e,session)=>{user=session?session.user:null;renderAuth()});
+
+// ===== 5. PROFILIS IR ATSILIEPIMAI =====
 function openProfile(id){
-const s=sitters.find(x=>x.id===id);
-$("dlg").innerHTML=`<div class="top"><div class="av">${avatar(s)}</div><div><h3 style="margin:0">${esc(s.name)}</h3><div class="meta">📍 ${esc(s.city)} · ${s.price} € / diena</div></div></div>
-<p>${esc(s.about)}</p><div class="tags">${s.pets.join(" ")}</div>
+const s=sitters.find(x=>x.id===id);if(!s)return;
+const mine=user&&s.user_id===user.id;
+$("dlg").innerHTML=`<div class="top"><div class="av">${avatar(s)}</div><div><h3 style="margin:0">${esc(s.name)}</h3><div class="meta">📍 ${esc(s.city)} · ${esc(String(s.price))} € / diena</div></div></div>
+<p>${esc(s.about)}</p><div class="tags">${s.pets.map(p=>`<span class="chip">${esc(p)}</span>`).join("")}</div>
 <h4>Atsiliepimai (${s.reviews.length})</h4>
 ${s.reviews.map(r=>`<div class="rev"><span class="stars">${star(r.s)}</span> <b>${esc(r.n)}</b><br>${esc(r.t)}</div>`).join("")||'<p class="meta">Atsiliepimų dar nėra.</p>'}
-<label>Palikti atsiliepimą</label>
+${user?`<label>Palikti atsiliepimą</label>
 <input id="rn" placeholder="Jūsų vardas" maxlength="30">
 <select id="rs" style="margin-top:6px"><option value="5">★★★★★</option><option value="4">★★★★☆</option><option value="3">★★★☆☆</option><option value="2">★★☆☆☆</option><option value="1">★☆☆☆☆</option></select>
 <textarea id="rt" rows="2" placeholder="Kaip sekėsi?" style="margin-top:6px" maxlength="300"></textarea>
-<div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button><button class="btn" onclick="addRev(${id})">Pateikti</button></div>`;
+<p class="err" id="rm"></p>
+<div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button><button class="btn" onclick="addRev('${s.id}')">Pateikti</button></div>`
+:`<p class="meta">Norėdami palikti atsiliepimą, prisijunkite.</p><div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button><button class="btn" onclick="openAuth()">Prisijungti</button></div>`}
+${mine?`<div class="row"><button class="btn ghost" onclick="delSitter('${s.id}')">Ištrinti mano anketą</button></div>`:""}`;
 $("dlg").showModal();
 }
-function addRev(id){
-const n=$("rn").value.trim(),t=$("rt").value.trim();if(!n||!t)return;
-sitters.find(x=>x.id===id).reviews.push({n,s:+$("rs").value,t});render();openProfile(id);
+async function addRev(id){
+const n=$("rn").value.trim(),t=$("rt").value.trim();
+if(!n||!t){$("rm").textContent="Užpildykite vardą ir tekstą.";return}
+// Į duomenų bazę rašome tik jei RLS taisyklė leidžia (prisijungęs, user_id sutampa)
+const {error}=await sb.from("reviews").insert({sitter_id:id,user_id:user.id,author:n,stars:+$("rs").value,body:t});
+if(error){$("rm").textContent="Nepavyko: "+error.message;return}
+await load();openProfile(id);
 }
+
+// ===== 6. NAUJA ANKETA =====
 function openAdd(){
+if(!user){openAuth();return}
 $("dlg").innerHTML=`<h3 style="margin-top:0">Tapti prižiūrėtoju</h3>
 <label>Vardas</label><input id="an" maxlength="30">
 <label>Miestas</label><input id="ac" maxlength="30">
@@ -141,16 +215,28 @@ $("dlg").innerHTML=`<h3 style="margin-top:0">Tapti prižiūrėtoju</h3>
 <label>Gyvūnai, kuriuos prižiūri</label>
 <div class="tags"><label style="display:inline"><input type="checkbox" class="ak" value="🐶" style="width:auto"> 🐶</label> <label style="display:inline"><input type="checkbox" class="ak" value="🐱" style="width:auto"> 🐱</label> <label style="display:inline"><input type="checkbox" class="ak" value="🐰" style="width:auto"> 🐰</label> <label style="display:inline"><input type="checkbox" class="ak" value="🐦" style="width:auto"> 🐦</label></div>
 <label>Apie jus (CV, patirtis)</label><textarea id="aa" rows="3" maxlength="400"></textarea>
+<p class="err" id="sm"></p>
 <div class="row"><button class="btn ghost" onclick="$('dlg').close()">Atšaukti</button><button class="btn" onclick="addSitter()">Paskelbti</button></div>`;
 $("dlg").showModal();
 }
-function addSitter(){
+async function addSitter(){
 const n=$("an").value.trim(),c=$("ac").value.trim(),a=$("aa").value.trim(),p=[...document.querySelectorAll(".ak:checked")].map(x=>x.value);
-if(!n||!c||!a||!p.length)return;
-sitters.push({id:Date.now(),name:n,city:c,av:"🙂",pets:p,price:+$("ap").value||10,about:a,reviews:[]});
-$("dlg").close();cities();render();
+if(!n||!c||!a||!p.length){$("sm").textContent="Užpildykite visus laukus ir pasirinkite bent vieną gyvūną.";return}
+const {error}=await sb.from("sitters").insert({user_id:user.id,name:n,city:c,pets:p,price:+$("ap").value||10,about:a});
+if(error){$("sm").textContent="Nepavyko: "+error.message;return}
+$("dlg").close();await load();
 }
-cities();render();
+async function delSitter(id){
+if(!confirm("Ištrinti šią anketą?"))return;
+const {error}=await sb.from("sitters").delete().eq("id",id);
+if(error){alert("Nepavyko: "+error.message);return}
+$("dlg").close();await load();
+}
+
+// ===== 7. PRADŽIA =====
+$("grid").innerHTML="<p>Kraunama…</p>";
+renderAuth();
+load();
 </script>
 </body>
 </html>
