@@ -146,7 +146,7 @@ $("grid").innerHTML=l.length?l.map(s=>`<div class="card"><div class="top"><div c
 // ===== 4. PRISIJUNGIMAS / REGISTRACIJA =====
 function renderAuth(){
 const b=$("authbar");
-if(user){b.innerHTML=`<span class="meta who">${esc(user.email)}</span><button class="btn" onclick="openAdd()">Tapti prižiūrėtoju</button><button class="btn ghost" onclick="logout()">Atsijungti</button>`}
+if(user){b.innerHTML=`<span class="meta who">${esc(user.email)}</span><button class="btn ghost" onclick="openMyBookings()">Mano užsakymai</button><button class="btn" onclick="openAdd()">Tapti prižiūrėtoju</button><button class="btn ghost" onclick="logout()">Atsijungti</button>`}
 else{b.innerHTML=`<button class="btn ghost" onclick="openAuth()">Prisijungti</button><button class="btn" onclick="openAuth()">Registruotis</button>`}
 }
 function openAuth(){
@@ -184,17 +184,19 @@ const s=sitters.find(x=>x.id===id);if(!s)return;
 const mine=user&&s.user_id===user.id;
 $("dlg").innerHTML=`<div class="top"><div class="av">${avatar(s)}</div><div><h3 style="margin:0">${esc(s.name)}</h3><div class="meta">📍 ${esc(s.city)} · ${esc(String(s.price))} € / diena</div></div></div>
 <p>${esc(s.about)}</p><div class="tags">${s.pets.map(p=>`<span class="chip">${esc(p)}</span>`).join("")}</div>
+${bookingBlock(s,mine)}${user?'<div id="rq"></div>':""}
 <h4>Atsiliepimai (${s.reviews.length})</h4>
 ${s.reviews.map(r=>`<div class="rev"><span class="stars">${star(r.s)}</span> <b>${esc(r.n)}</b><br>${esc(r.t)}</div>`).join("")||'<p class="meta">Atsiliepimų dar nėra.</p>'}
-${user?`<label>Palikti atsiliepimą</label>
+${user&&!mine?`<label>Palikti atsiliepimą</label>
 <input id="rn" placeholder="Jūsų vardas" maxlength="30">
 <select id="rs" style="margin-top:6px"><option value="5">★★★★★</option><option value="4">★★★★☆</option><option value="3">★★★☆☆</option><option value="2">★★☆☆☆</option><option value="1">★☆☆☆☆</option></select>
 <textarea id="rt" rows="2" placeholder="Kaip sekėsi?" style="margin-top:6px" maxlength="300"></textarea>
 <p class="err" id="rm"></p>
 <div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button><button class="btn" onclick="addRev('${s.id}')">Pateikti</button></div>`
-:`<p class="meta">Norėdami palikti atsiliepimą, prisijunkite.</p><div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button><button class="btn" onclick="openAuth()">Prisijungti</button></div>`}
+:user?`<div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button></div>`:`<p class="meta">Norėdami palikti atsiliepimą, prisijunkite.</p><div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button><button class="btn" onclick="openAuth()">Prisijungti</button></div>`}
 ${mine?`<div class="row"><button class="btn ghost" onclick="delSitter('${s.id}')">Ištrinti mano anketą</button></div>`:""}`;
 $("dlg").showModal();
+if(user)loadRequests(s.id,mine);
 }
 async function addRev(id){
 const n=$("rn").value.trim(),t=$("rt").value.trim();
@@ -203,6 +205,71 @@ if(!n||!t){$("rm").textContent="Užpildykite vardą ir tekstą.";return}
 const {error}=await sb.from("reviews").insert({sitter_id:id,user_id:user.id,author:n,stars:+$("rs").value,body:t});
 if(error){$("rm").textContent="Nepavyko: "+error.message;return}
 await load();openProfile(id);
+}
+
+// ===== 5b. UŽSAKYMAI =====
+// Šiandienos data formatu YYYY-MM-DD (pagal kompiuterio laiką), kad nebūtų galima rinktis praeities datų
+function todayStr(){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10)}
+
+// Užsakymo formos vieta profilio lange: priklauso nuo to, kas žiūri
+function bookingBlock(s,mine){
+if(mine)return"";  // savo anketos užsakyti negalima
+if(!user)return'<p class="meta">Norėdami užsakyti paslaugą, prisijunkite.</p>';
+return`<div id="bk"><h4>Užsakyti paslaugą</h4>
+<label>Jūsų vardas</label><input id="bo" maxlength="30">
+<label>Kontaktas (telefonas arba el. paštas)</label><input id="bc" maxlength="60">
+<label>Nuo</label><input id="bs" type="date" min="${todayStr()}">
+<label>Iki</label><input id="be" type="date" min="${todayStr()}">
+<textarea id="bn" rows="2" placeholder="Pastaba (gyvūno vardas, ypatumai)" style="margin-top:6px" maxlength="300"></textarea>
+<p class="err" id="bm"></p>
+<div class="row"><button class="btn" onclick="addBooking('${s.id}')">Pateikti užsakymą</button></div></div>`;
+}
+
+async function addBooking(id){
+const s=sitters.find(x=>x.id===id);
+const a=$("bs").value,b=$("be").value,n=$("bn").value.trim(),o=$("bo").value.trim(),c=$("bc").value.trim();
+if(!o||!c){$("bm").textContent="Įrašykite savo vardą ir kontaktą.";return}
+if(!a||!b){$("bm").textContent="Pasirinkite abi datas.";return}
+if(a<todayStr()){$("bm").textContent="Pradžios data negali būti praeityje.";return}
+if(b<a){$("bm").textContent="Pabaigos data negali būti ankstesnė už pradžią.";return}
+// owner_id duomenų bazė įrašo pati (auth.uid()), todėl jo nesiunčiame; statusas pradžioje visada "pending"
+const {error}=await sb.from("bookings").insert({sitter_id:id,start_date:a,end_date:b,note:n||null,owner_name:o,owner_contact:c});
+if(error){$("bm").textContent="Nepavyko: "+error.message;return}
+const days=Math.round((new Date(b)-new Date(a))/86400000)+1;
+$("bk").innerHTML=`<h4>Užklausa išsiųsta</h4><p class="meta">${esc(s.name)} gaus jūsų užklausą ${esc(a)} – ${esc(b)}. Preliminari kaina: <b>${days*s.price} €</b> (${days} d. × ${esc(String(s.price))} €).</p>`;
+}
+
+// Užklausų sąrašas profilio lange. Ką matyti leidžiama, nusprendžia duomenų bazės taisyklės (RLS):
+// prižiūrėtojas mato visas savo anketos užklausas, kitas prisijungęs žmogus tik savo paties.
+async function loadRequests(id,mine){
+const box=$("rq");if(!box)return;
+const {data,error}=await sb.from("bookings").select("*").eq("sitter_id",id).order("created_at",{ascending:false});
+if(error){box.innerHTML='<p class="err">Nepavyko įkelti užklausų: '+esc(error.message)+'</p>';return}
+if(!data.length){box.innerHTML=mine?'<h4>Gautos užklausos</h4><p class="meta">Užklausų dar nėra.</p>':"";return}
+const L={pending:"Laukia atsakymo",accepted:"Priimta",declined:"Atmesta"};
+box.innerHTML=`<h4>${mine?"Gautos užklausos":"Jūsų užklausos"}</h4>`+data.map(r=>`<div class="rev"><b>${esc(r.owner_name||"Užsakovas")}</b> · ${esc(r.start_date)} – ${esc(r.end_date)}<br><b>${L[r.status]||esc(r.status)}</b>${r.note?`<br>${esc(r.note)}`:""}${mine&&r.owner_contact?`<br>Kontaktas: ${esc(r.owner_contact)}`:""}${mine&&r.status==="pending"?`<div class="row"><button class="btn ghost" onclick="setStatus('${r.id}','declined','${id}')">Atmesti</button><button class="btn" onclick="setStatus('${r.id}','accepted','${id}')">Priimti</button></div>`:""}</div>`).join("");
+}
+async function setStatus(bid,status,sid){
+const {error}=await sb.from("bookings").update({status}).eq("id",bid);
+if(error){alert("Nepavyko: "+error.message);return}
+if($("rq"))loadRequests(sid,true);else openMyBookings();
+}
+
+// "Mano užsakymai": vienas langas su visu, ką šiai paskyrai leidžia matyti duomenų bazė (RLS):
+// užsakymai, kuriuos pateikė pats žmogus, ir užklausos, gautos į jo anketas.
+async function openMyBookings(){
+$("dlg").innerHTML='<h3 style="margin:0">Mano užsakymai</h3><p class="meta">Kraunama…</p>';
+if(!$("dlg").open)$("dlg").showModal();
+const {data,error}=await sb.from("bookings").select("*").order("created_at",{ascending:false});
+if(error){$("dlg").innerHTML='<h3 style="margin:0">Mano užsakymai</h3><p class="err">Nepavyko įkelti: '+esc(error.message)+'</p><div class="row"><button class="btn ghost" onclick="$(\'dlg\').close()">Uždaryti</button></div>';return}
+const L={pending:"Laukia atsakymo",accepted:"Priimta",declined:"Atmesta"};
+const nm=id=>{const s=sitters.find(x=>x.id===id);return s?s.name:"Anketa"};
+const row=(r,inc)=>`<div class="rev"><b>${esc(inc?(r.owner_name||"Užsakovas"):nm(r.sitter_id))}</b> · ${esc(r.start_date)} – ${esc(r.end_date)}<br><b>${L[r.status]||esc(r.status)}</b>${r.note?`<br>${esc(r.note)}`:""}${inc&&r.owner_contact?`<br>Kontaktas: ${esc(r.owner_contact)}`:""}${inc&&r.status==="pending"?`<div class="row"><button class="btn ghost" onclick="setStatus('${r.id}','declined','${r.sitter_id}')">Atmesti</button><button class="btn" onclick="setStatus('${r.id}','accepted','${r.sitter_id}')">Priimti</button></div>`:""}</div>`;
+const out=data.filter(r=>r.owner_id===user.id),inc=data.filter(r=>r.owner_id!==user.id);
+$("dlg").innerHTML=`<h3 style="margin:0">Mano užsakymai</h3>
+<h4>Mano pateiktos užklausos</h4>${out.map(r=>row(r,false)).join("")||'<p class="meta">Dar nieko neužsakėte.</p>'}
+${inc.length?`<h4>Gautos užklausos</h4>${inc.map(r=>row(r,true)).join("")}`:""}
+<div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button></div>`;
 }
 
 // ===== 6. NAUJA ANKETA =====
