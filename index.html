@@ -187,12 +187,7 @@ $("dlg").innerHTML=`<div class="top"><div class="av">${avatar(s)}</div><div><h3 
 ${bookingBlock(s,mine)}${user?'<div id="rq"></div>':""}
 <h4>Atsiliepimai (${s.reviews.length})</h4>
 ${s.reviews.map(r=>`<div class="rev"><span class="stars">${star(r.s)}</span> <b>${esc(r.n)}</b><br>${esc(r.t)}</div>`).join("")||'<p class="meta">Atsiliepimų dar nėra.</p>'}
-${user&&!mine?`<label>Palikti atsiliepimą</label>
-<input id="rn" placeholder="Jūsų vardas" maxlength="30">
-<select id="rs" style="margin-top:6px"><option value="5">★★★★★</option><option value="4">★★★★☆</option><option value="3">★★★☆☆</option><option value="2">★★☆☆☆</option><option value="1">★☆☆☆☆</option></select>
-<textarea id="rt" rows="2" placeholder="Kaip sekėsi?" style="margin-top:6px" maxlength="300"></textarea>
-<p class="err" id="rm"></p>
-<div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button><button class="btn" onclick="addRev('${s.id}')">Pateikti</button></div>`
+${user&&!mine?`<div id="rf"><p class="meta">Atsiliepimą gali palikti tik tas, kurio užsakymas priimtas.</p><div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button></div></div>`
 :user?`<div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button></div>`:`<p class="meta">Norėdami palikti atsiliepimą, prisijunkite.</p><div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button><button class="btn" onclick="openAuth()">Prisijungti</button></div>`}
 ${mine?`<div class="row"><button class="btn ghost" onclick="delSitter('${s.id}')">Ištrinti mano anketą</button></div>`:""}`;
 $("dlg").showModal();
@@ -245,6 +240,7 @@ async function loadRequests(id,mine){
 const box=$("rq");if(!box)return;
 const {data,error}=await sb.from("bookings").select("*").eq("sitter_id",id).order("created_at",{ascending:false});
 if(error){box.innerHTML='<p class="err">Nepavyko įkelti užklausų: '+esc(error.message)+'</p>';return}
+if(!mine){const rf=$("rf");if(rf&&data.some(r=>r.status==="accepted"))rf.innerHTML=reviewForm(id)}
 if(!data.length){box.innerHTML=mine?'<h4>Gautos užklausos</h4><p class="meta">Užklausų dar nėra.</p>':"";return}
 const L={pending:"Laukia atsakymo",accepted:"Priimta",declined:"Atmesta"};
 box.innerHTML=`<h4>${mine?"Gautos užklausos":"Jūsų užklausos"}</h4>`+data.map(r=>`<div class="rev"><b>${esc(r.owner_name||"Užsakovas")}</b> · ${esc(r.start_date)} – ${esc(r.end_date)}<br><b>${L[r.status]||esc(r.status)}</b>${r.note?`<br>${esc(r.note)}`:""}${mine&&r.owner_contact?`<br>Kontaktas: ${esc(r.owner_contact)}`:""}${mine&&r.status==="pending"?`<div class="row"><button class="btn ghost" onclick="setStatus('${r.id}','declined','${id}')">Atmesti</button><button class="btn" onclick="setStatus('${r.id}','accepted','${id}')">Priimti</button></div>`:""}</div>`).join("");
@@ -270,6 +266,16 @@ $("dlg").innerHTML=`<h3 style="margin:0">Mano užsakymai</h3>
 <h4>Mano pateiktos užklausos</h4>${out.map(r=>row(r,false)).join("")||'<p class="meta">Dar nieko neužsakėte.</p>'}
 ${inc.length?`<h4>Gautos užklausos</h4>${inc.map(r=>row(r,true)).join("")}`:""}
 <div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button></div>`;
+}
+
+// Atsiliepimo forma: rodoma tik jei šiai anketai turite PRIIMTĄ užsakymą (tą pačią taisyklę užtikrina ir duomenų bazė)
+function reviewForm(id){
+return`<label>Palikti atsiliepimą</label>
+<input id="rn" placeholder="Jūsų vardas" maxlength="30">
+<select id="rs" style="margin-top:6px"><option value="5">★★★★★</option><option value="4">★★★★☆</option><option value="3">★★★☆☆</option><option value="2">★★☆☆☆</option><option value="1">★☆☆☆☆</option></select>
+<textarea id="rt" rows="2" placeholder="Kaip sekėsi?" style="margin-top:6px" maxlength="300"></textarea>
+<p class="err" id="rm"></p>
+<div class="row"><button class="btn ghost" onclick="$('dlg').close()">Uždaryti</button><button class="btn" onclick="addRev('${id}')">Pateikti</button></div>`;
 }
 
 // ===== 6. NAUJA ANKETA =====
